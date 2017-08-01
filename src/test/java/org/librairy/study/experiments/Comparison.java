@@ -14,6 +14,7 @@ import org.librairy.boot.storage.dao.PartsDao;
 import org.librairy.study.Config;
 import org.librairy.study.dao.ItemCache;
 import org.librairy.study.dao.PartCache;
+import org.librairy.study.dao.ShapeDao;
 import org.librairy.study.dao.SimilarityDao;
 import org.librairy.study.model.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,6 +55,9 @@ public class Comparison {
 
     @Autowired
     SimilarityDao similarityDao;
+
+    @Autowired
+    ShapeDao shapeDao;
 
     @Test
     public void accuracy() throws IOException {
@@ -224,15 +228,60 @@ public class Comparison {
 
     }
 
-    private void createReport(String name, List<Accuracy> results, AccuracyReader reader) throws IOException {
+    @Test
+    public void internalRepresentativeness() throws IOException {
 
-        String header = results.stream().map(accuracy -> accuracy.getId()).sorted((a,b) -> a.compareTo(b)).collect(Collectors.joining("\t"));
-        FileWriter precisionWriter = new FileWriter("results/"+name+".txt");
-        precisionWriter.write(header);
-        precisionWriter.write("\n");
-        precisionWriter.write(results.stream().sorted((a, b) -> a.getId().compareTo(b.getId())).map(accuracy -> reader.get(accuracy)).collect(Collectors.joining("\t")));
-        precisionWriter.close();
+        ObjectMapper jsonMapper = new ObjectMapper();
+        Corpora corpora = jsonMapper.readValue(new File("src/main/resources/corpora.json"), Corpora.class);
+
+        int size = corpora.getDocuments().size();
+
+        Map<String,List<Double>> similarities = new ConcurrentHashMap<>();
+
+        AtomicInteger counter = new AtomicInteger();
+        corpora.getDocuments().parallelStream().forEach(doc -> {
+
+            System.out.println(counter.getAndIncrement() + "/" + size);
+
+            List<Part> parts = itemsDao.listParts(doc.getId(), 100, Optional.empty(), false).stream().map(part -> partsDao.get(part.getUri(), false).get().asPart()).collect(Collectors.toList());
+
+            parts.stream().forEach(part -> {
+
+                DirichletDistribution partDistribution = new DirichletDistribution();
+                partDistribution.setId(part.getSense());
+                partDistribution.setVector(shapeDao.get(domainUri,part.getUri()));
+
+
+                List<Double> partSimilarities = similarities.get(part.getSense());
+
+                if (partSimilarities == null) partSimilarities = new ArrayList<Double>();
+
+                Double similarity = partDistribution.similarTo(doc);
+
+                if (similarity > 0.0){
+                    partSimilarities.add(partDistribution.similarTo(doc));
+                    similarities.put(part.getSense(), partSimilarities);
+                }
+
+
+            });
+
+        });
+
+        for (Map.Entry<String,List<Double>> entry : similarities.entrySet()){
+
+            FileWriter writer = new FileWriter("results/similaritiesFrom"+entry.getKey()+".txt");
+            writer.write(entry.getKey());
+            writer.write("\n");
+            for(Double similarity: entry.getValue()){
+                writer.write(String.valueOf(similarity));
+                writer.write("\n");
+            }
+            writer.close();
+        }
+
     }
+
 
 }
 

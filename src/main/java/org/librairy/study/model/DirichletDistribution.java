@@ -7,7 +7,9 @@
 
 package org.librairy.study.model;
 
+import com.google.common.primitives.Doubles;
 import lombok.Data;
+import org.librairy.metrics.similarity.JensenShannonSimilarity;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -62,5 +64,9 @@ public class DirichletDistribution {
     public DirichletDistribution(String id, List<Double> vector){
         this.id = id;
         this.vector = vector;
+    }
+
+    public Double similarTo(DirichletDistribution d2){
+        return JensenShannonSimilarity.apply(Doubles.toArray(this.getVector()), Doubles.toArray(d2.getVector()));
     }
 }
